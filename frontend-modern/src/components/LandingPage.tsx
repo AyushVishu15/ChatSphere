@@ -116,7 +116,7 @@ function LandingPage() {
                 </div>
               </div>
             </div>
-            <div className="p-0 bg-gray-200 h-100 flex items-center justify-center">
+            <div className="p-0 bg-gray-200 h-full flex items-center justify-center">
               <img src="/Image/A.jpeg" alt="ChatSphere Preview" className="h-full w-full object-contain" />
             </div>
           </div>
