@@ -10,15 +10,17 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: 'https://chat-sphere-ecru.vercel.app',
     methods: ['GET', 'POST'],
+    credentials: true
   },
 });
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: 'https://chat-sphere-ecru.vercel.app',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
 }));
-app.use(express.json());
 
 // Log requests
 app.use((req, res, next) => {
