@@ -80,19 +80,19 @@ Follow these steps to set up and run ChatSphere locally.
 
 3. **Set Up Frontend**:
 
-Navigate to the frontend directory:
-```bash
-cd ../frontend-modern
-```
-Install dependencies:
-```bash
-npm install
-```
+   Navigate to the frontend directory:
+   ```bash
+   cd ../frontend-modern
+   ```
+   Install dependencies:
+   ```bash
+   npm install
+   ```
 
-Start the frontend:
-```bash
-npm run dev
-```
+   Start the frontend:
+   ```bash
+   npm run dev
+   ```
 
 ## Screenshots
 
@@ -114,3 +114,4 @@ npm run dev
 
 
 Built By  AyushVishu15 
+
