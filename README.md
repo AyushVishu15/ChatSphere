@@ -54,7 +54,63 @@ Follow these steps to set up and run ChatSphere locally.
    ```bash
    git clone https://github.com/AyushVishu15/ChatSphere.git
 
-Built By
-(AyushVishu15)
+
+2. **Set Up Backend**:
+
+   Navigate to the backend directory:
+   ```bash
+   cd backend 
+   ```
+   Install dependencies:
+   ```bash
+   npm install
+   ```
+   Create a .env file in backend/ with the following:
+   ```bash
+   textDATABASE_URL=postgresql://neondb_owner:xyz.ap-southeast-1.aws.xyz
+   JWT_SECRET=your_jwt_secret_key
+   NODE_ENV=development
+   FRONTEND_URL=http://localhost:5173
+   ```
+
+   Start the backend:
+   ```bash
+   npm start
+   ```
+
+3. **Set Up Frontend**:
+
+Navigate to the frontend directory:
+```bash
+cd ../frontend-modern
+```
+Install dependencies:
+```bash
+npm install
+```
+
+Start the frontend:
+```bash
+npm run dev
+```
+
+## Screenshots
+
+**Landing Page**
+
+<img width="1898" height="927" alt="image" src="https://github.com/user-attachments/assets/c3ddee51-ffdd-42ca-ba3d-9a5ab994cf10" />
+<img width="1896" height="500" alt="image" src="https://github.com/user-attachments/assets/39d01b96-030c-4a7e-ba47-be1ccfda9663" />
+<img width="1901" height="882" alt="image" src="https://github.com/user-attachments/assets/dad4938e-f26a-4137-9509-2b260ece214f" />
 
 
+**Login Page**
+
+<img width="1465" height="888" alt="image" src="https://github.com/user-attachments/assets/946db0a3-17f9-4587-984e-348c34e8a3a9" />
+
+
+**Chat Page**
+
+![A](https://github.com/user-attachments/assets/45b26912-551b-4a63-9c50-b6eedb1a2fff)
+
+
+Built By  AyushVishu15 
