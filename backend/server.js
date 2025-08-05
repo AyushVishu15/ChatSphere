@@ -1,5 +1,5 @@
 const express = require('express');
-const mongoose = require('mongoose');
+const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const http = require('http');
@@ -8,57 +8,68 @@ const cors = require('cors');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server, { cors: { origin: '*' } });
+const io = socketIo(server, {
+  cors: {
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    methods: ['GET', 'POST'],
+  },
+});
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+}));
 app.use(express.json());
 
-// Log all requests
+// Log requests
 app.use((req, res, next) => {
   console.log(`Received ${req.method} request to ${req.url}`);
   next();
 });
 
-// Connect to MongoDB
-mongoose.connect('mongodb://localhost:27017/chat-app')
-  .then(() => console.log('MongoDB connected successfully'))
-  .catch((err) => console.error('MongoDB connection error:', err));
-
-// Schemas
-const userSchema = new mongoose.Schema({
-  username: { type: String, unique: true, required: true },
-  password: { type: String, required: true },
-  friends: [{ type: String }],
-  friendRequests: [{ type: String }],
-  blocked: [{ type: String }],
+// PostgreSQL connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
 
-const messageSchema = new mongoose.Schema({
-  sender: String,
-  receiver: String,
-  content: String,
-  timestamp: { type: Date, default: Date.now },
-});
+// Initialize database schema
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username VARCHAR(255) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      friends TEXT[] DEFAULT '{}',
+      friend_requests TEXT[] DEFAULT '{}',
+      blocked TEXT[] DEFAULT '{}'
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+      id SERIAL PRIMARY KEY,
+      sender VARCHAR(255) NOT NULL,
+      receiver VARCHAR(255) NOT NULL,
+      content TEXT NOT NULL,
+      timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+initDb().catch(err => console.error('Database initialization error:', err));
 
-const User = mongoose.model('User', userSchema);
-const Message = mongoose.model('Message', messageSchema);
-
-const JWT_SECRET = 'my_secure_random_string_123';
+// Environment variables
+const JWT_SECRET = process.env.JWT_SECRET || 'my_secure_random_string_123';
+const PORT = process.env.PORT || 3000;
 
 app.post('/api/auth/register', async (req, res) => {
   const { username, password } = req.body;
   try {
-    console.log(`Attempting to register user: ${username}`);
-    const existingUser = await User.findOne({ username });
-    if (existingUser) {
+    const { rows: existingUsers } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (existingUsers.length > 0) {
       console.log(`Username ${username} already taken`);
       return res.status(400).json({ message: 'Username taken' });
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = new User({ username, password: hashedPassword, friends: [], friendRequests: [], blocked: [] });
-    await user.save();
+    await pool.query('INSERT INTO users (username, password) VALUES ($1, $2)', [username, hashedPassword]);
     const token = jwt.sign({ username }, JWT_SECRET);
-    console.log(`User registered successfully: ${username}`);
+    console.log(`User registered: ${username}`);
     res.json({ token });
   } catch (err) {
     console.error('Registration error:', err.message, err.stack);
@@ -69,8 +80,9 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   try {
-    const user = await User.findOne({ username });
-    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+    const { rows: users } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (users.length === 0) return res.status(400).json({ message: 'Invalid credentials' });
+    const user = users[0];
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
     const token = jwt.sign({ username }, JWT_SECRET);
@@ -86,8 +98,9 @@ const authMiddleware = async (req, res, next) => {
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = await User.findOne({ username: decoded.username });
-    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+    const { rows: users } = await pool.query('SELECT * FROM users WHERE username = $1', [decoded.username]);
+    if (users.length === 0) return res.status(401).json({ message: 'Unauthorized' });
+    req.user = users[0];
     next();
   } catch (err) {
     res.status(401).json({ message: 'Unauthorized' });
@@ -98,7 +111,7 @@ app.get('/api/users/me', authMiddleware, (req, res) => {
   res.json({
     username: req.user.username,
     friends: req.user.friends,
-    friendRequests: req.user.friendRequests,
+    friendRequests: req.user.friend_requests,
   });
 });
 
@@ -106,7 +119,7 @@ app.get('/api/users/search', authMiddleware, async (req, res) => {
   const { query } = req.query;
   try {
     if (!query) return res.status(400).json({ message: 'Query parameter required' });
-    const users = await User.find({ username: new RegExp(query, 'i') }).select('username');
+    const { rows: users } = await pool.query('SELECT username FROM users WHERE username ILIKE $1', [`%${query}%`]);
     res.json(users.map(user => user.username));
   } catch (err) {
     console.error('Search error:', err);
@@ -117,26 +130,17 @@ app.get('/api/users/search', authMiddleware, async (req, res) => {
 app.post('/api/friends/request', authMiddleware, async (req, res) => {
   const { username } = req.body;
   try {
-    console.log(`Friend request from ${req.user.username} to ${username}`);
-    const targetUser = await User.findOne({ username });
-    if (!targetUser) {
-      console.log(`User ${username} not found`);
-      return res.status(404).json({ message: 'User not found' });
-    }
-    if (targetUser.username === req.user.username) {
-      console.log('Cannot add self');
-      return res.status(400).json({ message: 'Cannot add self' });
-    }
-    if (targetUser.friendRequests.includes(req.user.username) || req.user.friends.includes(username)) {
-      console.log('Request already sent or already friends');
+    const { rows: targetUsers } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (targetUsers.length === 0) return res.status(404).json({ message: 'User not found' });
+    const targetUser = targetUsers[0];
+    if (targetUser.username === req.user.username) return res.status(400).json({ message: 'Cannot add self' });
+    if (targetUser.friend_requests.includes(req.user.username) || req.user.friends.includes(username)) {
       return res.status(400).json({ message: 'Request already sent or already friends' });
     }
-    targetUser.friendRequests.push(req.user.username);
-    await targetUser.save();
-    console.log(`Friend request sent to ${username}`);
+    await pool.query('UPDATE users SET friend_requests = array_append(friend_requests, $1) WHERE username = $2', [req.user.username, username]);
     res.json({ message: 'Friend request sent' });
   } catch (err) {
-    console.error('Friend request error:', err.message, err.stack);
+    console.error('Friend request error:', err);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -144,15 +148,11 @@ app.post('/api/friends/request', authMiddleware, async (req, res) => {
 app.post('/api/friends/accept', authMiddleware, async (req, res) => {
   const { username } = req.body;
   try {
-    if (!req.user.friendRequests.includes(username)) {
+    if (!req.user.friend_requests.includes(username)) {
       return res.status(400).json({ message: 'No friend request from this user' });
     }
-    req.user.friendRequests = req.user.friendRequests.filter((req) => req !== username);
-    req.user.friends.push(username);
-    await req.user.save();
-    const friend = await User.findOne({ username });
-    friend.friends.push(req.user.username);
-    await friend.save();
+    await pool.query('UPDATE users SET friend_requests = array_remove(friend_requests, $1), friends = array_append(friends, $1) WHERE username = $2', [username, req.user.username]);
+    await pool.query('UPDATE users SET friends = array_append(friends, $1) WHERE username = $2', [req.user.username, username]);
     res.json({ message: 'Friend request accepted' });
   } catch (err) {
     console.error('Accept friend error:', err);
@@ -163,11 +163,8 @@ app.post('/api/friends/accept', authMiddleware, async (req, res) => {
 app.post('/api/friends/unfriend', authMiddleware, async (req, res) => {
   const { username } = req.body;
   try {
-    req.user.friends = req.user.friends.filter((f) => f !== username);
-    await req.user.save();
-    const friend = await User.findOne({ username });
-    friend.friends = friend.friends.filter((f) => f !== req.user.username);
-    await friend.save();
+    await pool.query('UPDATE users SET friends = array_remove(friends, $1) WHERE username = $2', [username, req.user.username]);
+    await pool.query('UPDATE users SET friends = array_remove(friends, $1) WHERE username = $2', [req.user.username, username]);
     res.json({ message: 'Unfriended' });
   } catch (err) {
     console.error('Unfriend error:', err);
@@ -178,12 +175,8 @@ app.post('/api/friends/unfriend', authMiddleware, async (req, res) => {
 app.post('/api/friends/block', authMiddleware, async (req, res) => {
   const { username } = req.body;
   try {
-    req.user.friends = req.user.friends.filter((f) => f !== username);
-    req.user.blocked.push(username);
-    await req.user.save();
-    const friend = await User.findOne({ username });
-    friend.friends = friend.friends.filter((f) => f !== req.user.username);
-    await friend.save();
+    await pool.query('UPDATE users SET friends = array_remove(friends, $1), blocked = array_append(blocked, $1) WHERE username = $2', [username, req.user.username]);
+    await pool.query('UPDATE users SET friends = array_remove(friends, $1) WHERE username = $2', [req.user.username, username]);
     res.json({ message: 'User blocked' });
   } catch (err) {
     console.error('Block error:', err);
@@ -194,12 +187,10 @@ app.post('/api/friends/block', authMiddleware, async (req, res) => {
 app.get('/api/messages/:friend', authMiddleware, async (req, res) => {
   const { friend } = req.params;
   try {
-    const messages = await Message.find({
-      $or: [
-        { sender: req.user.username, receiver: friend },
-        { sender: friend, receiver: req.user.username },
-      ],
-    }).sort({ timestamp: 1 });
+    const { rows: messages } = await pool.query(
+      'SELECT * FROM messages WHERE (sender = $1 AND receiver = $2) OR (sender = $2 AND receiver = $1) ORDER BY timestamp ASC',
+      [req.user.username, friend]
+    );
     res.json(messages);
   } catch (err) {
     console.error('Messages error:', err);
@@ -222,10 +213,9 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   socket.on('message', async (msg) => {
     const { sender, receiver, content } = msg;
-    const message = new Message({ sender, receiver, content });
-    await message.save();
+    await pool.query('INSERT INTO messages (sender, receiver, content) VALUES ($1, $2, $3)', [sender, receiver, content]);
     io.emit('message', msg);
   });
 });
 
-server.listen(3000, () => console.log('Server running on port 3000'));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
