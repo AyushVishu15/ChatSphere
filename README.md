@@ -1,4 +1,4 @@
-# ChatSphere Application
+# ChatSphere 
 
 ChatSphere is a full-stack web application designed for seamless real-time communication. It allows users to sign up, log in, manage friends, and chat instantly with a clean, modern, and responsive interface. Built with a **React** frontend and a **Node.js/Express** backend, it uses **Neon PostgreSQL** for cloud-based data storage and **Socket.IO** for real-time messaging. **JWT-based authentication** ensures secure user access, while **Tailwind CSS** provides a sleek, responsive design.
 
@@ -56,4 +56,5 @@ Follow these steps to set up and run ChatSphere locally.
 
 Built By
 (AyushVishu15)
+
 
